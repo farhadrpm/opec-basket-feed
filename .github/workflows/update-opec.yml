@@ -1,94 +1,335 @@
-name: Inspect OPEC Table
+name: Update OPEC Basket Price
 
 on:
+  schedule:
+    - cron: '30 6 * * *'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
-  inspect-opec:
+  update-opec:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download OPEC page
-        run: |
-          curl -L \
-            -A "Mozilla/5.0" \
-            -o country.html \
-            "https://countryeconomy.com/raw-materials/opec?year=2026"
 
-          echo "Downloaded:"
-          wc -c country.html
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Find OPEC table
+      - name: Fetch OPEC Basket price
         run: |
-          echo "========== TABLE DATA =========="
 
           python3 <<'PY'
+
           from html.parser import HTMLParser
+          from urllib.request import Request, urlopen
+          from datetime import datetime
+          import json
+          import sys
+
+
+          URL = "https://countryeconomy.com/raw-materials/opec?year=2026"
+
 
           class TableParser(HTMLParser):
 
               def __init__(self):
+
                   super().__init__()
-                  self.in_td = False
-                  self.in_th = False
+
                   self.in_table = False
-                  self.current = []
-                  self.rows = []
-                  self.row = []
+                  self.in_row = False
+                  self.in_cell = False
+
+                  self.current_cell = []
+                  self.current_row = []
+
+                  self.tables = []
+
 
               def handle_starttag(self, tag, attrs):
 
-                  if tag == "table":
+                  if tag == "table" and not self.in_table:
+
                       self.in_table = True
 
                   elif self.in_table and tag == "tr":
-                      self.row = []
 
-                  elif self.in_table and tag in ("td", "th"):
-                      self.current = []
-                      self.in_td = tag == "td"
-                      self.in_th = tag == "th"
+                      self.in_row = True
+                      self.current_row = []
 
-              def handle_endtag(self, tag):
+                  elif self.in_table and self.in_row and tag in ("td", "th"):
 
-                  if self.in_table and tag in ("td", "th"):
+                      self.in_cell = True
+                      self.current_cell = []
 
-                      text = "".join(self.current).strip()
-
-                      if text:
-                          self.row.append(text)
-
-                      self.in_td = False
-                      self.in_th = False
-
-                  elif self.in_table and tag == "tr":
-
-                      if self.row:
-                          self.rows.append(self.row)
-
-                  elif tag == "table":
-                      self.in_table = False
 
               def handle_data(self, data):
 
-                  if self.in_td or self.in_th:
-                      self.current.append(data)
+                  if self.in_cell:
+
+                      self.current_cell.append(data)
+
+
+              def handle_endtag(self, tag):
+
+                  if self.in_table and self.in_row and tag in ("td", "th"):
+
+                      text = " ".join(
+                          "".join(self.current_cell).split()
+                      )
+
+                      self.current_row.append(text)
+
+                      self.in_cell = False
+
+
+                  elif self.in_table and tag == "tr":
+
+                      if self.current_row:
+
+                          self.tables.append(
+                              self.current_row
+                          )
+
+                      self.in_row = False
+
+
+                  elif tag == "table":
+
+                      self.in_table = False
+
+
+          print("========== OPEC UPDATE ==========")
+
+          print("Downloading:")
+          print(URL)
+
+
+          request = Request(
+              URL,
+              headers={
+                  "User-Agent": "Mozilla/5.0",
+                  "Accept": "text/html,application/xhtml+xml"
+              }
+          )
+
+
+          try:
+
+              with urlopen(
+                  request,
+                  timeout=30
+              ) as response:
+
+                  html = response.read().decode(
+                      "utf-8",
+                      errors="ignore"
+                  )
+
+                  status = response.status
+
+          except Exception as e:
+
+              print("ERROR: Could not download source.")
+              print(e)
+
+              sys.exit(1)
+
+
+          print("HTTP status:", status)
+          print("Downloaded bytes:", len(html))
+
 
           parser = TableParser()
 
+          parser.feed(html)
+
+
+          print("Rows detected:", len(parser.tables))
+
+
+          target_row = None
+
+
+          for i in range(
+              len(parser.tables) - 1
+          ):
+
+              row = parser.tables[i]
+
+              next_row = parser.tables[i + 1]
+
+
+              if (
+                  len(row) >= 2
+                  and row[0].strip().lower() == "date"
+                  and "price" in row[1].lower()
+              ):
+
+                  target_row = next_row
+
+                  break
+
+
+          if not target_row:
+
+              print(
+                  "ERROR: OPEC daily table not found."
+              )
+
+              sys.exit(1)
+
+
+          print("Latest row:")
+          print(target_row)
+
+
+          if len(target_row) < 2:
+
+              print(
+                  "ERROR: Invalid OPEC row."
+              )
+
+              sys.exit(1)
+
+
+          date_text = target_row[0].strip()
+          price_text = target_row[1].strip()
+
+
+          try:
+
+              date_obj = datetime.strptime(
+                  date_text,
+                  "%Y-%m-%d"
+              )
+
+              updated_at = date_obj.strftime(
+                  "%Y-%m-%d"
+              )
+
+          except ValueError:
+
+              print(
+                  "ERROR: Invalid date:",
+                  date_text
+              )
+
+              sys.exit(1)
+
+
+          price_text = (
+              price_text
+              .replace("$", "")
+              .replace(",", "")
+              .strip()
+          )
+
+
+          try:
+
+              price = float(price_text)
+
+          except ValueError:
+
+              print(
+                  "ERROR: Invalid price:",
+                  price_text
+              )
+
+              sys.exit(1)
+
+
+          if price <= 0:
+
+              print(
+                  "ERROR: Invalid price value:",
+                  price
+              )
+
+              sys.exit(1)
+
+
+          print("Detected date:", updated_at)
+          print("Detected price:", price)
+
+
+          output = {
+
+              "success": True,
+
+              "price": price,
+
+              "currency": "USD",
+
+              "unit": "barrel",
+
+              "updated_at": updated_at,
+
+              "source": "CountryEconomy",
+
+              "source_url":
+                  "https://countryeconomy.com/raw-materials/opec"
+
+          }
+
+
           with open(
-              "country.html",
-              encoding="utf-8",
-              errors="ignore"
+              "opec-price.json",
+              "w",
+              encoding="utf-8"
           ) as f:
 
-              parser.feed(f.read())
+              json.dump(
+                  output,
+                  f,
+                  indent=4
+              )
 
-          print("Tables/rows found:", len(parser.rows))
+              f.write("\n")
 
-          for i, row in enumerate(parser.rows[:100]):
 
-              print(f"ROW {i}:")
-              print(row)
+          print("")
+          print("========== GENERATED JSON ==========")
+
+          print(
+              json.dumps(
+                  output,
+                  indent=4
+              )
+          )
+
+          print("")
+          print(
+              "OPEC Basket price updated successfully."
+          )
 
           PY
+
+
+      - name: Commit updated price
+        run: |
+
+          git config user.name "github-actions[bot]"
+
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+
+          git add opec-price.json
+
+
+          if git diff --cached --quiet; then
+
+            echo "No price change detected."
+
+          else
+
+            git commit \
+              -m "Update OPEC Basket price"
+
+            git push
+
+          fi
