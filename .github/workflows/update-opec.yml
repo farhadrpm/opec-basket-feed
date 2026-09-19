@@ -1,37 +1,94 @@
-name: Test OPEC Source
+name: Inspect OPEC Table
 
 on:
   workflow_dispatch:
 
 jobs:
-  test-opec:
+  inspect-opec:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Test CountryEconomy
+      - name: Download OPEC page
         run: |
-          echo "========== TEST START =========="
-
-          echo "Testing CountryEconomy..."
-
           curl -L \
-            -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/139 Safari/537.36" \
-            -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" \
-            -H "Accept-Language: en-US,en;q=0.9" \
+            -A "Mozilla/5.0" \
             -o country.html \
-            -w "\nHTTP STATUS: %{http_code}\nSIZE: %{size_download}\n" \
             "https://countryeconomy.com/raw-materials/opec?year=2026"
 
-          echo ""
-          echo "========== FILE INFO =========="
+          echo "Downloaded:"
+          wc -c country.html
 
-          ls -lh country.html
+      - name: Find OPEC table
+        run: |
+          echo "========== TABLE DATA =========="
 
-          echo ""
-          echo "========== FIRST 3000 CHARACTERS =========="
+          python3 <<'PY'
+          from html.parser import HTMLParser
 
-          head -c 3000 country.html
+          class TableParser(HTMLParser):
 
-          echo ""
-          echo ""
-          echo "========== TEST END =========="
+              def __init__(self):
+                  super().__init__()
+                  self.in_td = False
+                  self.in_th = False
+                  self.in_table = False
+                  self.current = []
+                  self.rows = []
+                  self.row = []
+
+              def handle_starttag(self, tag, attrs):
+
+                  if tag == "table":
+                      self.in_table = True
+
+                  elif self.in_table and tag == "tr":
+                      self.row = []
+
+                  elif self.in_table and tag in ("td", "th"):
+                      self.current = []
+                      self.in_td = tag == "td"
+                      self.in_th = tag == "th"
+
+              def handle_endtag(self, tag):
+
+                  if self.in_table and tag in ("td", "th"):
+
+                      text = "".join(self.current).strip()
+
+                      if text:
+                          self.row.append(text)
+
+                      self.in_td = False
+                      self.in_th = False
+
+                  elif self.in_table and tag == "tr":
+
+                      if self.row:
+                          self.rows.append(self.row)
+
+                  elif tag == "table":
+                      self.in_table = False
+
+              def handle_data(self, data):
+
+                  if self.in_td or self.in_th:
+                      self.current.append(data)
+
+          parser = TableParser()
+
+          with open(
+              "country.html",
+              encoding="utf-8",
+              errors="ignore"
+          ) as f:
+
+              parser.feed(f.read())
+
+          print("Tables/rows found:", len(parser.rows))
+
+          for i, row in enumerate(parser.rows[:100]):
+
+              print(f"ROW {i}:")
+              print(row)
+
+          PY
