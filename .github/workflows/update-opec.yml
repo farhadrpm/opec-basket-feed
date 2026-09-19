@@ -13,21 +13,39 @@ jobs:
 
   update-opec:
 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
 
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Fetch OPEC data
+      - name: Download OPEC data
         run: |
 
+          set -e
+
           curl -L \
-            -H "Accept-Language: en-GB,en;q=0.9" \
-            -H "User-Agent: Mozilla/5.0" \
+            --fail \
+            --silent \
+            --show-error \
+            --retry 3 \
+            --connect-timeout 20 \
+            --max-time 60 \
+            -H "Accept: application/xml,text/xml,*/*;q=0.8" \
+            -H "Accept-Language: en-US,en;q=0.9" \
+            -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0 Safari/537.36" \
             "https://www.opec.org/basket/basketDayArchives.xml" \
             -o opec.xml
+
+          echo "Downloaded file information:"
+          file opec.xml
+
+          echo ""
+          echo "First 500 characters:"
+          head -c 500 opec.xml
+
+          echo ""
 
       - name: Parse latest OPEC price
         run: |
@@ -38,7 +56,20 @@ jobs:
           import json
           from datetime import datetime, timezone
 
-          tree = ET.parse("opec.xml")
+          print("Parsing OPEC XML...")
+
+          try:
+              tree = ET.parse("opec.xml")
+          except Exception as e:
+              print("ERROR: OPEC response is not valid XML.")
+              print("Parser error:", e)
+
+              print("\nFirst 2000 characters of response:")
+              with open("opec.xml", "r", errors="replace") as f:
+                  print(f.read(2000))
+
+              raise SystemExit(1)
+
           root = tree.getroot()
 
           latest_date = None
@@ -80,6 +111,7 @@ jobs:
           with open("opec-price.json", "w") as f:
               json.dump(data, f, indent=2)
 
+          print("\nSUCCESS:")
           print(json.dumps(data, indent=2))
 
           PY
@@ -92,7 +124,9 @@ jobs:
 
           git add opec-price.json
 
-          git diff --cached --quiet || \
-            git commit -m "Update OPEC Basket price"
-
-          git push
+          if git diff --cached --quiet; then
+              echo "No changes to commit."
+          else
+              git commit -m "Update OPEC Basket price"
+              git push
+          fi
