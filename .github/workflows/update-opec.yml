@@ -1,0 +1,98 @@
+name: Update OPEC Basket Price
+
+on:
+  schedule:
+    - cron: '0 12 * * *'
+
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+
+  update-opec:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Fetch OPEC data
+        run: |
+
+          curl -L \
+            -H "Accept-Language: en-GB,en;q=0.9" \
+            -H "User-Agent: Mozilla/5.0" \
+            "https://www.opec.org/basket/basketDayArchives.xml" \
+            -o opec.xml
+
+      - name: Parse latest OPEC price
+        run: |
+
+          python3 <<'PY'
+
+          import xml.etree.ElementTree as ET
+          import json
+          from datetime import datetime, timezone
+
+          tree = ET.parse("opec.xml")
+          root = tree.getroot()
+
+          latest_date = None
+          latest_price = None
+
+          for item in root.iter():
+
+              if item.tag.endswith("BasketList"):
+
+                  date = item.attrib.get("data")
+                  value = item.attrib.get("val")
+
+                  if not date or not value:
+                      continue
+
+                  try:
+                      price = float(value)
+                  except ValueError:
+                      continue
+
+                  if latest_date is None or date > latest_date:
+                      latest_date = date
+                      latest_price = price
+
+          if latest_date is None:
+              raise Exception("No OPEC Basket data found")
+
+          data = {
+              "success": True,
+              "price": latest_price,
+              "currency": "USD",
+              "unit": "barrel",
+              "updated_at": latest_date,
+              "source": "OPEC",
+              "source_url": "https://www.opec.org/basket/basketDayArchives.xml",
+              "fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+          }
+
+          with open("opec-price.json", "w") as f:
+              json.dump(data, f, indent=2)
+
+          print(json.dumps(data, indent=2))
+
+          PY
+
+      - name: Commit updated price
+        run: |
+
+          git config user.name "OPEC Price Bot"
+          git config user.email "actions@users.noreply.github.com"
+
+          git add opec-price.json
+
+          git diff --cached --quiet || \
+            git commit -m "Update OPEC Basket price"
+
+          git push
