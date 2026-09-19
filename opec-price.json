@@ -1,8 +1,9 @@
 {
-  "success": false,
-  "price": null,
-  "currency": "USD",
-  "unit": "barrel",
-  "updated_at": null,
-  "source": "OPEC"
+    "success": true,
+    "price": 110.24,
+    "currency": "USD",
+    "unit": "barrel",
+    "updated_at": "2026-09-18",
+    "source": "CountryEconomy",
+    "source_url": "https://countryeconomy.com/raw-materials/opec"
 }
