@@ -1,138 +1,42 @@
-name: Update OPEC Basket Price
+name: Test OPEC Connection
 
 on:
-  schedule:
-    - cron: '0 12 * * *'
-
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
-
-  update-opec:
-
+  test:
     runs-on: ubuntu-24.04
 
     steps:
 
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download OPEC data
+      - name: Test OPEC
         run: |
 
-          set -e
+          echo "Testing OPEC connection..."
 
           curl -L \
-          
-            --silent \
-            --show-error \
-            --retry 3 \
-            --connect-timeout 20 \
-            --max-time 60 \
+            -sS \
+            -D headers.txt \
+            -o opec.xml \
             -H "Accept: application/xml,text/xml,*/*;q=0.8" \
             -H "Accept-Language: en-US,en;q=0.9" \
-            -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0 Safari/537.36" \
-            "https://www.opec.org/basket/basketDayArchives.xml" \
-            -o opec.xml
+            -H "User-Agent: Mozilla/5.0" \
+            "https://www.opec.org/basket/basketDayArchives.xml"
 
-          echo "Downloaded file information:"
+          echo ""
+          echo "========== HTTP HEADERS =========="
+          cat headers.txt
+
+          echo ""
+          echo "========== FILE INFO =========="
           file opec.xml
 
           echo ""
-          echo "Response size:"
+          echo "========== FILE SIZE =========="
           wc -c opec.xml
 
           echo ""
-          echo "First 2000 characters:"
-          head -c 2000 opec.xml
+          echo "========== RESPONSE =========="
+          head -c 3000 opec.xml
 
           echo ""
-
-          echo ""
-
-      - name: Parse latest OPEC price
-        run: |
-
-          python3 <<'PY'
-
-          import xml.etree.ElementTree as ET
-          import json
-          from datetime import datetime, timezone
-
-          print("Parsing OPEC XML...")
-
-          try:
-              tree = ET.parse("opec.xml")
-          except Exception as e:
-              print("ERROR: OPEC response is not valid XML.")
-              print("Parser error:", e)
-
-              print("\nFirst 2000 characters of response:")
-              with open("opec.xml", "r", errors="replace") as f:
-                  print(f.read(2000))
-
-              raise SystemExit(1)
-
-          root = tree.getroot()
-
-          latest_date = None
-          latest_price = None
-
-          for item in root.iter():
-
-              if item.tag.endswith("BasketList"):
-
-                  date = item.attrib.get("data")
-                  value = item.attrib.get("val")
-
-                  if not date or not value:
-                      continue
-
-                  try:
-                      price = float(value)
-                  except ValueError:
-                      continue
-
-                  if latest_date is None or date > latest_date:
-                      latest_date = date
-                      latest_price = price
-
-          if latest_date is None:
-              raise Exception("No OPEC Basket data found")
-
-          data = {
-              "success": True,
-              "price": latest_price,
-              "currency": "USD",
-              "unit": "barrel",
-              "updated_at": latest_date,
-              "source": "OPEC",
-              "source_url": "https://www.opec.org/basket/basketDayArchives.xml",
-              "fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-          }
-
-          with open("opec-price.json", "w") as f:
-              json.dump(data, f, indent=2)
-
-          print("\nSUCCESS:")
-          print(json.dumps(data, indent=2))
-
-          PY
-
-      - name: Commit updated price
-        run: |
-
-          git config user.name "OPEC Price Bot"
-          git config user.email "actions@users.noreply.github.com"
-
-          git add opec-price.json
-
-          if git diff --cached --quiet; then
-              echo "No changes to commit."
-          else
-              git commit -m "Update OPEC Basket price"
-              git push
-          fi
