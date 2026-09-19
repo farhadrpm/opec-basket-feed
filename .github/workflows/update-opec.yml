@@ -158,7 +158,7 @@ jobs:
           protocol: ftp
           port: 21
           local-dir: ./
-          server-dir: public_html/data/
+          server-dir: /
           dangerous-clean-slate: false
           exclude: |
             **/*
