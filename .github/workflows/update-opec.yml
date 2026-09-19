@@ -1,42 +1,137 @@
-name: Test OPEC Connection
+name: Update OPEC Basket Price
 
 on:
+  schedule:
+    - cron: '30 6 * * *'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
-  test:
-    runs-on: ubuntu-24.04
+  update-opec:
+    runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Test OPEC
+      - name: Fetch OPEC Basket price
         run: |
+          python3 <<'PY'
+          import urllib.request
+          import re
+          import json
+          import sys
+          from datetime import datetime, timezone
 
-          echo "Testing OPEC connection..."
+          url = "https://countryeconomy.com/raw-materials/opec?year=2026"
 
-          curl -L \
-            -sS \
-            -D headers.txt \
-            -o opec.xml \
-            -H "Accept: application/xml,text/xml,*/*;q=0.8" \
-            -H "Accept-Language: en-US,en;q=0.9" \
-            -H "User-Agent: Mozilla/5.0" \
-            "https://www.opec.org/basket/basketDayArchives.xml"
+          headers = {
+              "User-Agent": "Mozilla/5.0",
+              "Accept": "text/html,application/xhtml+xml"
+          }
 
-          echo ""
-          echo "========== HTTP HEADERS =========="
-          cat headers.txt
+          print("Fetching:", url)
 
-          echo ""
-          echo "========== FILE INFO =========="
-          file opec.xml
+          request = urllib.request.Request(
+              url,
+              headers=headers
+          )
 
-          echo ""
-          echo "========== FILE SIZE =========="
-          wc -c opec.xml
+          try:
+              with urllib.request.urlopen(
+                  request,
+                  timeout=30
+              ) as response:
 
-          echo ""
-          echo "========== RESPONSE =========="
-          head -c 3000 opec.xml
+                  html = response.read().decode(
+                      "utf-8",
+                      errors="ignore"
+                  )
 
-          echo ""
+          except Exception as e:
+
+              print("ERROR: Could not fetch CountryEconomy")
+              print(e)
+
+              sys.exit(1)
+
+          print("Page downloaded successfully.")
+          print("Page size:", len(html))
+
+          # Look for the first daily OPEC value.
+          #
+          # Expected HTML contains something similar to:
+          # 2026-09-17 ... $119.20
+
+          pattern = r'(\d{4}-\d{2}-\d{2}).{0,1000}?\$([0-9]+(?:\.[0-9]+)?)'
+
+          matches = re.findall(
+              pattern,
+              html,
+              re.DOTALL
+          )
+
+          if not matches:
+
+              print("ERROR: Could not find OPEC price.")
+              sys.exit(1)
+
+          # Use the newest date found.
+          matches.sort(
+              key=lambda x: x[0],
+              reverse=True
+          )
+
+          date = matches[0][0]
+          price = matches[0][1]
+
+          print("Detected date:", date)
+          print("Detected price:", price)
+
+          output = {
+              "success": True,
+              "price": float(price),
+              "currency": "USD",
+              "unit": "barrel",
+              "updated_at": date,
+              "source": "CountryEconomy",
+              "source_url": "https://countryeconomy.com/raw-materials/opec"
+          }
+
+          with open(
+              "opec-price.json",
+              "w",
+              encoding="utf-8"
+          ) as f:
+
+              json.dump(
+                  output,
+                  f,
+                  indent=4
+              )
+
+              f.write("\n")
+
+          print("opec-price.json updated successfully.")
+          PY
+
+      - name: Show generated JSON
+        run: |
+          echo "========== opec-price.json =========="
+          cat opec-price.json
+
+      - name: Commit updated price
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add opec-price.json
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Update OPEC Basket price"
+            git push
+          fi
