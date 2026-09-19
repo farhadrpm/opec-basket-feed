@@ -26,7 +26,7 @@ jobs:
           set -e
 
           curl -L \
-            --fail \
+          
             --silent \
             --show-error \
             --retry 3 \
@@ -42,8 +42,14 @@ jobs:
           file opec.xml
 
           echo ""
-          echo "First 500 characters:"
-          head -c 500 opec.xml
+          echo "Response size:"
+          wc -c opec.xml
+
+          echo ""
+          echo "First 2000 characters:"
+          head -c 2000 opec.xml
+
+          echo ""
 
           echo ""
 
