@@ -9,12 +9,11 @@ jobs:
 
     steps:
 
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
       - name: Create FTP Test File
         run: |
           echo "TAV PETROIL FTP TEST 123" > ftp-test.txt
+          echo "Created test file:"
+          cat ftp-test.txt
 
       - name: Upload FTP Test
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
