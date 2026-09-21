@@ -1,9 +1,9 @@
 {
     "success": true,
-    "price": 119.2,
+    "price": 101.65,
     "currency": "USD",
     "unit": "barrel",
-    "updated_at": "2026-09-17",
-    "source": "CountryEconomy",
-    "source_url": "https://countryeconomy.com/raw-materials/opec"
+    "updated_at": "2026-09-21T08:16:00.000Z",
+    "source": "OilPriceAPI",
+    "source_url": "https://www.oilpriceapi.com/"
 }
