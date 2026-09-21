@@ -1,21 +1,199 @@
-name: FTP Connection Test
+name: Update Brent Crude Oil
 
 on:
+  schedule:
+    - cron: "30 6 * * *"
   workflow_dispatch:
 
 jobs:
-  test:
+  update:
     runs-on: ubuntu-latest
 
     steps:
 
-      - name: Create FTP Test File
-        run: |
-          echo "TAV PETROIL FTP TEST 123" > ftp-test.txt
-          echo "Created test file:"
-          cat ftp-test.txt
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Upload FTP Test
+      - name: Fetch Brent Crude Oil
+        env:
+          OILPRICE_API_KEY: ${{ secrets.OILPRICE_API_KEY }}
+        run: |
+          python3 <<'PY'
+
+          import urllib.request
+          import json
+          import os
+          import sys
+
+          API_KEY = os.environ.get("OILPRICE_API_KEY")
+
+          if not API_KEY:
+              print("ERROR: OILPRICE_API_KEY is not configured")
+              sys.exit(1)
+
+          URL = "https://api.oilpriceapi.com/v1/prices/latest?by_code=BRENT_CRUDE_USD"
+
+          print("Requesting Brent price from OilPriceAPI...")
+
+          request = urllib.request.Request(
+              URL,
+              headers={
+                  "Authorization": f"Token {API_KEY}",
+                  "User-Agent": "TAV-PETROIL-GitHub-Action"
+              }
+          )
+
+          try:
+
+              with urllib.request.urlopen(
+                  request,
+                  timeout=30
+              ) as response:
+
+                  raw = response.read().decode(
+                      "utf-8",
+                      errors="ignore"
+                  )
+
+          except Exception as e:
+
+              print("API request failed:", e)
+              sys.exit(1)
+
+          try:
+
+              result = json.loads(raw)
+
+          except json.JSONDecodeError:
+
+              print("Invalid JSON received:")
+              print(raw)
+
+              sys.exit(1)
+
+          if result.get("status") != "success":
+
+              print("API returned unsuccessful response:")
+              print(json.dumps(result, indent=4))
+
+              sys.exit(1)
+
+          data = result.get("data", {})
+
+          price = data.get("price")
+
+          updated_at = (
+              data.get("as_of")
+              or data.get("updated_at")
+              or data.get("created_at")
+          )
+
+          if price is None:
+
+              print("ERROR: Brent price not found")
+              sys.exit(1)
+
+          if not updated_at:
+
+              print("ERROR: Brent timestamp not found")
+              sys.exit(1)
+
+          try:
+
+              price = float(price)
+
+          except (TypeError, ValueError):
+
+              print("ERROR: Invalid Brent price:", price)
+              sys.exit(1)
+
+          if price <= 0:
+
+              print("ERROR: Brent price must be greater than zero")
+              sys.exit(1)
+
+          stale = data.get("stale", False)
+
+          if stale:
+
+              print("ERROR: API reports stale data")
+              sys.exit(1)
+
+          output = {
+
+              "success": True,
+
+              "price": price,
+
+              "currency": data.get(
+                  "currency",
+                  "USD"
+              ),
+
+              "unit": data.get(
+                  "unit",
+                  "barrel"
+              ),
+
+              "updated_at": updated_at,
+
+              "source": "OilPriceAPI",
+
+              "source_url":
+                  "https://www.oilpriceapi.com/",
+
+              "data_status":
+                  data.get(
+                      "data_status",
+                      "current"
+                  ),
+
+              "benchmark": data.get(
+                  "benchmark",
+                  {}
+              )
+          }
+
+          with open(
+              "brent-price.json",
+              "w",
+              encoding="utf-8"
+          ) as file:
+
+              json.dump(
+                  output,
+                  file,
+                  indent=4
+              )
+
+          print("")
+          print("========================================")
+          print("Brent Crude Oil")
+          print("========================================")
+
+          print(
+              json.dumps(
+                  output,
+                  indent=4
+              )
+          )
+
+          print("========================================")
+          print("brent-price.json created successfully")
+          print("========================================")
+
+          PY
+
+      - name: Verify Brent JSON
+        run: |
+          echo "Checking generated brent-price.json..."
+          test -f brent-price.json
+          echo ""
+          cat brent-price.json
+          echo ""
+          echo "brent-price.json verified successfully."
+
+      - name: Upload Brent JSON to Mihan
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ${{ secrets.FTP_HOST }}
@@ -28,4 +206,4 @@ jobs:
           dangerous-clean-slate: false
           exclude: |
             **/*
-            !ftp-test.txt
+            !brent-price.json
