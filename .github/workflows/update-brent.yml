@@ -195,28 +195,17 @@ jobs:
 
           PY
 
-
-      - name: Upload Brent JSON to Mihan
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
-
-        with:
-
-          server: ${{ secrets.FTP_HOST }}
-
-          username: ${{ secrets.FTP_USERNAME }}
-
-          password: ${{ secrets.FTP_PASSWORD }}
-
-          protocol: ftp
-
-          port: 21
-
-          local-dir: ./
-
-          server-dir: /
-
-          dangerous-clean-slate: false
-
-          exclude: |
-            **/*
-            !brent-price.json
+      - name: Upload FTP Test
+  uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+  with:
+    server: ${{ secrets.FTP_HOST }}
+    username: ${{ secrets.FTP_USERNAME }}
+    password: ${{ secrets.FTP_PASSWORD }}
+    protocol: ftp
+    port: 21
+    local-dir: ./
+    server-dir: /
+    dangerous-clean-slate: false
+    exclude: |
+      **/*
+      !ftp-test.txt
